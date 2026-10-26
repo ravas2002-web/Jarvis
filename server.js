@@ -3,31 +3,23 @@ import express from "express";
 import session from "express-session";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import OpenAI from "openai";
 
 const app = express();
 const production = process.env.NODE_ENV === "production";
 
-for (const key of ["APP_PASSWORD", "SESSION_SECRET", "OPENAI_API_KEY"]) {
-  if (!process.env[key]) {
-    console.error(`Missing environment variable: ${key}`);
-    process.exit(1);
-  }
+if (!process.env.APP_PASSWORD || !process.env.SESSION_SECRET) {
+  console.error("Λείπει το APP_PASSWORD ή το SESSION_SECRET στο Render.");
+  process.exit(1);
 }
 
 if (process.env.SESSION_SECRET.length < 32) {
-  console.error("SESSION_SECRET must be at least 32 characters.");
+  console.error("Το SESSION_SECRET πρέπει να έχει τουλάχιστον 32 χαρακτήρες.");
   process.exit(1);
 }
 
 if (production) app.set("trust proxy", 1);
 
-app.disable("x-powered-by");
-
-// Δοκιμαστικά απενεργοποιούμε το CSP,
-// επειδή το index.html χρησιμοποιεί inline JavaScript.
 app.use(helmet({ contentSecurityPolicy: false }));
-
 app.use(express.json({ limit: "20kb" }));
 
 app.use(session({
@@ -43,16 +35,8 @@ app.use(session({
   }
 }));
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
-
-const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
-
 app.get("/api/status", (req, res) => {
-  res.json({
-    authenticated: Boolean(req.session.authenticated)
-  });
+  res.json({ authenticated: Boolean(req.session.authenticated) });
 });
 
 app.post("/api/login", rateLimit({
@@ -68,7 +52,6 @@ app.post("/api/login", rateLimit({
 
   req.session.regenerate(err => {
     if (err) return next(err);
-
     req.session.authenticated = true;
     res.json({ ok: true });
   });
@@ -76,69 +59,66 @@ app.post("/api/login", rateLimit({
 
 app.post("/api/logout", (req, res) => {
   req.session.destroy(() => {
-    res.clearCookie("jarvis.sid", {
-      httpOnly: true,
-      sameSite: "strict",
-      secure: production
-    });
-
+    res.clearCookie("jarvis.sid");
     res.json({ ok: true });
   });
 });
 
+function jarvisReply(message) {
+  const m = message.toLowerCase().trim();
+
+  if (/^(γεια|γεια σου|καλησπέρα|καλημέρα|καληνύχτα|hello|hi)\b/.test(m)) {
+    return "Γεια σου! Είμαι ο JARVIS, η τοπική σου προσομοίωση AI. Πώς μπορώ να βοηθήσω;";
+  }
+
+  if (m.includes("ποιος είσαι") || m.includes("τι είσαι")) {
+    return "Είμαι ο JARVIS Demo, μια προσομοίωση προσωπικού βοηθού. Αυτή η έκδοση δεν χρησιμοποιεί εξωτερικό AI API.";
+  }
+
+  if (m.includes("τι ώρα") || m.includes("ώρα τώρα")) {
+    return "Η ώρα του server είναι: " +
+      new Date().toLocaleTimeString("el-GR", { timeZone: "Europe/Athens" });
+  }
+
+  if (m.includes("τι ημερομηνία") || m.includes("τι μέρα")) {
+    return "Σήμερα είναι " +
+      new Date().toLocaleDateString("el-GR", {
+        timeZone: "Europe/Athens",
+        dateStyle: "full"
+      }) + ".";
+  }
+
+  if (m.includes("βοήθεια") || m.includes("τι μπορείς")) {
+    return "Μπορώ να απαντώ σε βασικούς χαιρετισμούς, να σου λέω ώρα και ημερομηνία και να εξηγώ ότι είμαι η demo έκδοση. Δεν έχω ζωντανή αναζήτηση στο διαδίκτυο ούτε τις γνώσεις ενός πραγματικού AI μοντέλου.";
+  }
+
+  if (m.includes("ευχαριστώ")) {
+    return "Παρακαλώ! Είμαι εδώ για να σε βοηθήσω όσο μπορώ.";
+  }
+
+  if (m.includes("καιρός")) {
+    return "Σε αυτή την έκδοση δεν έχω ζωντανή πρόσβαση σε δεδομένα καιρού.";
+  }
+
+  return "Κατάλαβα το μήνυμά σου: «" + message.trim() +
+    "». Είμαι σε λειτουργία προσομοίωσης και δεν έχω συνδεδεμένο πραγματικό AI μοντέλο. Δοκίμασε «βοήθεια», «τι ώρα είναι;» ή «ποιος είσαι;».";
+}
+
 app.post("/api/chat", rateLimit({
   windowMs: 60 * 1000,
-  limit: 15
-}), async (req, res) => {
+  limit: 30
+}), (req, res) => {
   if (!req.session.authenticated) {
     return res.status(401).json({ error: "Συνδέσου πρώτα." });
   }
 
   const message = req.body?.message;
 
-  if (
-    typeof message !== "string" ||
-    !message.trim() ||
-    message.length > 8000
-  ) {
-    return res.status(400).json({
-      error: "Μήνυμα έως 8.000 χαρακτήρες."
-    });
+  if (typeof message !== "string" || !message.trim() || message.length > 8000) {
+    return res.status(400).json({ error: "Γράψε ένα μήνυμα έως 8.000 χαρακτήρες." });
   }
 
-  try {
-    const response = await openai.responses.create({
-      model,
-      tools: [{ type: "web_search_preview" }],
-      input: [
-        {
-          role: "system",
-          content:
-            "Είσαι ο JARVIS, προσωπικός AI βοηθός. " +
-            "Απάντα στα ελληνικά, με σαφήνεια και ειλικρίνεια. " +
-            "Μην ισχυρίζεσαι ότι ελέγχεις συσκευές ή λογαριασμούς " +
-            "χωρίς σχετικό εργαλείο."
-        },
-        {
-          role: "user",
-          content: message.trim()
-        }
-      ]
-    });
-
-    res.json({
-      reply: response.output_text || "Δεν υπήρξε απάντηση."
-    });
-  } catch (error) {
-    console.error(
-      "AI request failed:",
-      error?.status || error?.name
-    );
-
-    res.status(502).json({
-      error: "Σφάλμα AI. Έλεγξε το API key και τη χρέωση API."
-    });
-  }
+  res.json({ reply: jarvisReply(message) });
 });
 
 app.use(express.static("public"));
@@ -150,5 +130,5 @@ app.get("/{*path}", (_req, res) => {
 const port = Number(process.env.PORT || 3000);
 
 app.listen(port, () => {
-  console.log("JARVIS started on port " + port);
+  console.log("JARVIS Demo started on port " + port);
 });
