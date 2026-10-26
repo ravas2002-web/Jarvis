@@ -1,6 +1,6 @@
 
 {
-  "name": "jarvis-personal-assistant",
+  "name": "jarvis",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,7 @@
   "dependencies": {
     "express": "^5.1.0",
     "express-session": "^1.18.2",
-    "helmet": "^8.1.0",
     "express-rate-limit": "^8.1.0",
-    "openai": "^5.20.0"
+    "helmet": "^8.1.0"
   }
 }
