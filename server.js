@@ -1,209 +1,205 @@
 
-<!DOCTYPE html>
-<html lang="el">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#080d18">
-<title>JARVIS AI</title>
-<style>
-*{box-sizing:border-box}
-body{margin:0;background:#080d18;color:#edf4ff;font-family:system-ui,sans-serif}
-main{max-width:800px;margin:auto;padding:20px 14px;min-height:100vh;display:flex;flex-direction:column}
-header{text-align:center;padding:20px 0}
-.orb{width:76px;height:76px;border:2px solid #42d9ff;border-radius:50%;margin:auto;display:grid;place-items:center;color:#62e4ff;font-size:30px;box-shadow:0 0 28px #159fc655}
-h1{letter-spacing:5px}
-.panel{background:#111b2b;border:1px solid #24344c;border-radius:16px;padding:14px;margin:10px 0}
-input,textarea,button{font:inherit;border-radius:12px;padding:12px;border:1px solid #334761}
-input,textarea{background:#091321;color:white;width:100%;margin:6px 0}
-button{background:#123b54;color:white;cursor:pointer}
-button:disabled{opacity:.5}
-.primary{background:#087fa4;border:0;width:100%}
-.row{display:flex;gap:8px;flex-wrap:wrap}
-.row button{flex:1}
-.muted{color:#93a8c4}
-.hidden{display:none!important}
-#status{color:#91dff5;font-size:14px}
-#messages{min-height:200px;max-height:55vh;overflow:auto}
-.msg{padding:12px;border-radius:12px;margin:10px 0;white-space:pre-wrap;overflow-wrap:anywhere}
-.user{background:#12354a}
-.ai{background:#172235}
-footer{margin-top:auto;text-align:center;padding:20px;color:#93a8c4}
-</style>
-</head>
-<body>
-<main>
-<header>
-<div class="orb">✦</div>
-<h1>JARVIS</h1>
-<div class="muted">PERSONAL AI ASSISTANT</div>
-<p id="status">Σύνδεση με τον server…</p>
-</header>
+import express from "express";
+import session from "express-session";
+import rateLimit from "express-rate-limit";
+import helmet from "helmet";
 
-<section id="login" class="panel hidden">
-<h3>Σύνδεση</h3>
-<form id="loginForm">
-<input id="password" type="password" placeholder="Κωδικός πρόσβασης" required>
-<button class="primary" type="submit">Σύνδεση</button>
-</form>
-<p id="loginError"></p>
-</section>
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-<section id="app" class="hidden">
-<div class="row">
-<button id="voice" type="button">🎙️ Μίλα</button>
-<button id="speak" type="button">🔊 Ομιλία: OFF</button>
-<button id="clear" type="button">Καθαρισμός</button>
-<button id="logout" type="button">Έξοδος</button>
-</div>
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
+app.use(helmet({
+  contentSecurityPolicy: false
+}));
+app.use(express.json({ limit: "32kb" }));
+app.use(express.static("public"));
 
-<div id="messages" class="panel">
-<div class="msg ai">Γεια σου! Είμαι ο JARVIS. Πώς μπορώ να σε βοηθήσω;</div>
-</div>
+const {
+  GROQ_API_KEY,
+  APP_PASSWORD,
+  SESSION_SECRET
+} = process.env;
 
-<form id="chatForm" class="panel">
-<textarea id="message" rows="3" maxlength="8000" placeholder="Γράψε ένα μήνυμα…" required></textarea>
-<button class="primary" id="send" type="submit">Αποστολή ➤</button>
-</form>
-</section>
-<footer>JARVIS AI · Η χρήση εξαρτάται από τα όρια του παρόχου AI</footer>
-</main>
-
-<script>
-const $ = id => document.getElementById(id);
-let speaking = false;
-let busy = false;
-let history = [];
-
-function add(role, text) {
-  const d = document.createElement("div");
-  d.className = "msg " + (role === "user" ? "user" : "ai");
-  d.textContent = text;
-  $("messages").appendChild(d);
-  $("messages").scrollTop = $("messages").scrollHeight;
-}
-
-async function checkLogin() {
-  try {
-    const r = await fetch("/api/status");
-    const data = await r.json();
-    $("login").classList.toggle("hidden", data.authenticated);
-    $("app").classList.toggle("hidden", !data.authenticated);
-    $("status").textContent = data.authenticated ? "JARVIS AI online" : "Απαιτείται σύνδεση";
-  } catch {
-    $("status").textContent = "Δεν υπάρχει σύνδεση με τον server.";
+app.use(session({
+  name: "jarvis.sid",
+  secret: SESSION_SECRET || "development-secret-change-this",
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 12 * 60 * 60 * 1000
   }
-}
+}));
 
-$("loginForm").addEventListener("submit", async e => {
-  e.preventDefault();
-  $("loginError").textContent = "Σύνδεση…";
-
-  try {
-    const r = await fetch("/api/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: $("password").value })
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || "Αποτυχία σύνδεσης.");
-    $("password").value = "";
-    $("loginError").textContent = "";
-    await checkLogin();
-  } catch (err) {
-    $("loginError").textContent = err.message;
-  }
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-7",
+  legacyHeaders: false
 });
 
-$("chatForm").addEventListener("submit", async e => {
-  e.preventDefault();
-  if (busy) return;
+const chatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false
+});
 
-  const message = $("message").value.trim();
-  if (!message) return;
-
-  busy = true;
-  $("send").disabled = true;
-  $("message").value = "";
-  add("user", message);
-  $("status").textContent = "Ο JARVIS σκέφτεται…";
-
-  try {
-    const r = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, history })
+function requireLogin(req, res, next) {
+  if (!req.session.authenticated) {
+    return res.status(401).json({
+      error: "Χρειάζεται να συνδεθείς ξανά."
     });
-    const data = await r.json();
+  }
+  next();
+}
 
-    if (r.status === 401) {
-      await checkLogin();
-      throw new Error("Συνδέσου ξανά για να συνεχίσεις.");
+app.get("/api/status", (req, res) => {
+  res.json({
+    authenticated: Boolean(req.session.authenticated),
+    aiConfigured: Boolean(GROQ_API_KEY)
+  });
+});
+
+app.post("/api/login", loginLimiter, (req, res, next) => {
+  if (!APP_PASSWORD) {
+    return res.status(503).json({
+      error: "Δεν έχει οριστεί το APP_PASSWORD στο Render."
+    });
+  }
+
+  if (typeof req.body?.password !== "string" ||
+      req.body.password !== APP_PASSWORD) {
+    return res.status(401).json({
+      error: "Λάθος κωδικός."
+    });
+  }
+
+  req.session.regenerate(err => {
+    if (err) return next(err);
+
+    req.session.authenticated = true;
+    req.session.save(err => {
+      if (err) return next(err);
+      res.json({ success: true });
+    });
+  });
+});
+
+app.post("/api/logout", (req, res, next) => {
+  req.session.destroy(err => {
+    if (err) return next(err);
+    res.clearCookie("jarvis.sid");
+    res.json({ success: true });
+  });
+});
+
+app.post("/api/chat", requireLogin, chatLimiter, async (req, res) => {
+  try {
+    if (!GROQ_API_KEY) {
+      return res.status(503).json({
+        error: "Δεν έχει ρυθμιστεί το GROQ_API_KEY στο Render."
+      });
     }
-    if (!r.ok) throw new Error(data.error || "Παρουσιάστηκε σφάλμα.");
 
-    add("assistant", data.reply);
-    history.push(
-      { role: "user", content: message },
-      { role: "assistant", content: data.reply }
+    const message = req.body?.message;
+
+    if (typeof message !== "string" ||
+        !message.trim() ||
+        message.length > 8000) {
+      return res.status(400).json({
+        error: "Το μήνυμα πρέπει να έχει 1–8000 χαρακτήρες."
+      });
+    }
+
+    const allowedRoles = new Set(["user", "assistant"]);
+    const history = Array.isArray(req.body.history)
+      ? req.body.history
+          .filter(item =>
+            item &&
+            allowedRoles.has(item.role) &&
+            typeof item.content === "string"
+          )
+          .slice(-12)
+          .map(item => ({
+            role: item.role,
+            content: item.content.slice(0, 8000)
+          }))
+      : [];
+
+    const messages = [
+      {
+        role: "system",
+        content: `Είσαι ο JARVIS ULTRA, ένας έξυπνος, φιλικός και
+ικανός προσωπικός βοηθός. Μιλάς φυσικά ελληνικά όταν ο χρήστης
+γράφει ελληνικά. Δίνεις σαφείς, χρήσιμες και ακριβείς απαντήσεις.
+Δεν ισχυρίζεσαι ότι έκανες ενέργειες που δεν έκανες. Αν δεν γνωρίζεις
+κάτι ή δεν έχεις πρόσβαση σε ζωντανά δεδομένα, το εξηγείς ειλικρινά.
+Δεν αποκαλύπτεις μυστικά, κλειδιά API ή κωδικούς.`
+      },
+      ...history,
+      { role: "user", content: message.trim() }
+    ];
+
+    const response = await fetch(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${GROQ_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: process.env.GROQ_MODEL || "openai/gpt-oss-20b",
+          messages,
+          temperature: 0.6,
+          max_completion_tokens: 2048
+        }),
+        signal: AbortSignal.timeout(45000)
+      }
     );
-    history = history.slice(-12);
-    $("status").textContent = "JARVIS AI online";
 
-    if (speaking && "speechSynthesis" in window) {
-      const utterance = new SpeechSynthesisUtterance(data.reply);
-      utterance.lang = "el-GR";
-      speechSynthesis.speak(utterance);
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      console.error("Groq API error:", response.status, result.error?.message);
+
+      return res.status(502).json({
+        error: response.status === 429
+          ? "Το όριο χρήσης AI εξαντλήθηκε προσωρινά. Δοκίμασε αργότερα."
+          : "Το AI δεν απάντησε. Έλεγξε το API key, το μοντέλο και τα logs του Render."
+      });
     }
-  } catch (err) {
-    add("assistant", "Σφάλμα: " + err.message);
-    $("status").textContent = "Παρουσιάστηκε πρόβλημα";
-  } finally {
-    busy = false;
-    $("send").disabled = false;
-    $("message").focus();
+
+    const reply = result.choices?.[0]?.message?.content;
+
+    if (typeof reply !== "string" || !reply.trim()) {
+      return res.status(502).json({
+        error: "Το AI επέστρεψε κενή απάντηση."
+      });
+    }
+
+    res.json({ reply: reply.trim() });
+  } catch (error) {
+    console.error("Chat error:", error.message);
+
+    res.status(500).json({
+      error: "Σφάλμα σύνδεσης με το AI. Δοκίμασε ξανά."
+    });
   }
 });
 
-$("clear").addEventListener("click", () => {
-  $("messages").replaceChildren();
-  history = [];
+app.use((err, req, res, next) => {
+  console.error("Server error:", err.message);
+  res.status(500).json({
+    error: "Εσωτερικό σφάλμα server."
+  });
 });
 
-$("speak").addEventListener("click", () => {
-  speaking = !speaking;
-  $("speak").textContent = "🔊 Ομιλία: " + (speaking ? "ON" : "OFF");
-  if (!speaking && "speechSynthesis" in window) speechSynthesis.cancel();
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`JARVIS ULTRA running on port ${PORT}`);
 });
-
-$("voice").addEventListener("click", () => {
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Recognition) {
-    $("status").textContent = "Η φωνητική εισαγωγή δεν υποστηρίζεται από αυτόν τον browser.";
-    return;
-  }
-
-  const recognition = new Recognition();
-  recognition.lang = "el-GR";
-  recognition.onresult = e => {
-    $("message").value = e.results[0][0].transcript;
-    $("message").focus();
-  };
-  recognition.onerror = () => {
-    $("status").textContent = "Δεν έγινε αναγνώριση φωνής.";
-  };
-  recognition.start();
-  $("status").textContent = "Σε ακούω…";
-});
-
-$("logout").addEventListener("click", async () => {
-  await fetch("/api/logout", { method: "POST" });
-  history = [];
-  await checkLogin();
-});
-
-checkLogin();
-</script>
-</body>
-</html>
 
