@@ -36,7 +36,7 @@ footer{margin-top:auto;padding:18px 0;text-align:center}
 <div class="orb">✦</div>
 <h1>JARVIS</h1>
 <div class="muted">PERSONAL ASSISTANT · DEMO</div>
-<p id="status">Έλεγχος σύνδεσης…</p>
+<p id="status">Έτοιμος</p>
 </header>
 
 <section id="login" class="panel hidden">
@@ -48,21 +48,20 @@ footer{margin-top:auto;padding:18px 0;text-align:center}
 <p id="loginError"></p>
 </section>
 
-<section id="app" class="hidden">
+<section id="app">
 <div class="row">
 <button id="voice" type="button">🎙️ Μίλα</button>
 <button id="speak" type="button">🔊 Ομιλία: OFF</button>
-<button id="logout" type="button">Αποσύνδεση</button>
-</div>
-<div id="messages" class="panel">
-<div class="msg ai">Γεια σου! Είμαι ο JARVIS Demo. Γράψε «βοήθεια» για να δεις τι μπορώ να κάνω.</div>
-</div>
-<form id="chatForm" class="panel">
-<textarea id="message" rows="3" maxlength="8000" placeholder="Γράψε ένα μήνυμα…" required></textarea>
-<div class="row">
-<button class="primary" id="send" type="submit">Αποστολή ➤</button>
 <button id="clear" type="button">Καθαρισμός</button>
 </div>
+
+<div id="messages" class="panel">
+<div class="msg ai">Γεια σου! Είμαι ο JARVIS Demo. Γράψε «βοήθεια» για τις διαθέσιμες λειτουργίες.</div>
+</div>
+
+<form id="chatForm" class="panel">
+<textarea id="message" rows="3" maxlength="8000" placeholder="Γράψε ένα μήνυμα…" required></textarea>
+<button class="primary" id="send" type="submit">Αποστολή ➤</button>
 </form>
 </section>
 
@@ -74,10 +73,7 @@ const $ = id => document.getElementById(id);
 let speaking = false;
 let busy = false;
 
-function status(t){ $("status").textContent = t; }
-function show(id, yes){ $(id).classList.toggle("hidden", !yes); }
-
-function add(role, text){
+function add(role, text) {
   const d = document.createElement("div");
   d.className = "msg " + (role === "user" ? "user" : "ai");
   d.textContent = text;
@@ -85,142 +81,109 @@ function add(role, text){
   $("messages").scrollTop = $("messages").scrollHeight;
 }
 
-async function request(url, data){
-  const options = {
-    method: data ? "POST" : "GET",
-    credentials: "same-origin",
-    headers: data ? {"Content-Type":"application/json"} : {}
-  };
-  if(data) options.body = JSON.stringify(data);
-
-  const r = await fetch(url, options);
-  const result = await r.json().catch(() => ({}));
-  if(!r.ok) throw Error(result.error || "Σφάλμα σύνδεσης");
-  return result;
-}
-
-async function check(){
-  try{
-    const r = await request("/api/status");
-    show("login", !r.authenticated);
-    show("app", r.authenticated);
-    status(r.authenticated ? "JARVIS Demo online" : "Συνδέσου για να ξεκινήσεις");
-  }catch(e){
-    show("login", true);
-    show("app", false);
-    status("Δεν υπάρχει σύνδεση με τον server");
-  }
-}
-
-function localReply(message){
+function reply(message) {
   const m = message.toLocaleLowerCase("el-GR").trim();
 
-  if(/^(γεια|γεια σου|καλησπέρα|καλημέρα|καληνύχτα|hello|hi)(\s|!|\.|$)/i.test(m))
-    return "Γεια σου! Είμαι ο JARVIS Demo. Πώς μπορώ να σε βοηθήσω;";
+  if (/^(geia|γειά|γεια|hello|hi)(\s|$|!|\.|,)/i.test(m) ||
+      /^(γεια σου|καλημέρα|καλησπέρα|καληνύχτα)$/.test(m)) {
+    return "Γεια σου φίλε! Είμαι ο JARVIS Demo και λειτουργώ χωρίς εξωτερικό AI API.";
+  }
 
-  if(m.includes("ποιος είσαι") || m.includes("τι είσαι"))
-    return "Είμαι ο JARVIS Demo, μια απλή προσομοίωση προσωπικού βοηθού. Δεν χρησιμοποιώ εξωτερικό AI μοντέλο.";
+  if (m.includes("ποιος είσαι") || m.includes("τι είσαι")) {
+    return "Είμαι ο JARVIS Demo, μια απλή προσομοίωση προσωπικού βοηθού.";
+  }
 
-  if(m.includes("τι ώρα") || m.includes("ώρα τώρα"))
-    return "Η ώρα στην Ελλάδα είναι " + new Date().toLocaleTimeString("el-GR",{timeZone:"Europe/Athens"}) + ".";
+  if (m.includes("βοήθεια") || m.includes("τι μπορείς")) {
+    return "Μπορώ να απαντώ σε χαιρετισμούς, να σου λέω ώρα και ημερομηνία και να διαβάζω τις απαντήσεις δυνατά. Δεν διαθέτω πραγματικό AI μοντέλο ή ζωντανή αναζήτηση.";
+  }
 
-  if(m.includes("ημερομηνία") || m.includes("τι μέρα"))
-    return "Σήμερα είναι " + new Date().toLocaleDateString("el-GR",{timeZone:"Europe/Athens",dateStyle:"full"}) + ".";
+  if (m.includes("τι ώρα") || m.includes("ώρα τώρα")) {
+    return "Η ώρα στην Ελλάδα είναι " +
+      new Date().toLocaleTimeString("el-GR", {timeZone:"Europe/Athens"}) + ".";
+  }
 
-  if(m.includes("βοήθεια") || m.includes("τι μπορείς"))
-    return "Μπορώ να απαντώ σε βασικούς χαιρετισμούς, να σου λέω ώρα και ημερομηνία και να διαβάζω τις απαντήσεις δυνατά. Δεν έχω ζωντανή αναζήτηση ή γενική νοημοσύνη AI.";
+  if (m.includes("ημερομηνία") || m.includes("τι μέρα")) {
+    return "Σήμερα είναι " +
+      new Date().toLocaleDateString("el-GR", {
+        timeZone:"Europe/Athens",
+        dateStyle:"full"
+      }) + ".";
+  }
 
-  if(m.includes("ευχαριστώ"))
-    return "Παρακαλώ! Χαίρομαι που μπορώ να βοηθήσω.";
+  if (m.includes("ευχαριστώ")) {
+    return "Παρακαλώ φίλε!";
+  }
 
-  if(m.includes("καιρός"))
-    return "Δεν έχω ζωντανά δεδομένα καιρού σε αυτή την έκδοση.";
+  if (m.includes("καιρός")) {
+    return "Δεν έχω πρόσβαση σε ζωντανά δεδομένα καιρού σε αυτή την έκδοση.";
+  }
 
-  if(m.includes("τι κάνεις"))
-    return "Είμαι online και έτοιμος να δοκιμάσουμε τις διαθέσιμες λειτουργίες μου.";
-
-  return "Έλαβα το μήνυμά σου: «" + message + "».\n\nΑυτή είναι η δωρεάν λειτουργία Demo, με προκαθορισμένες απαντήσεις και χωρίς εξωτερικό AI API. Δοκίμασε να γράψεις «βοήθεια».";
+  return "Έλαβα το μήνυμά σου: «" + message + "».\n\nΕίμαι σε λειτουργία Demo και χρησιμοποιώ προκαθορισμένες απαντήσεις, όχι πραγματικό AI. Γράψε «βοήθεια» για να δεις τι μπορώ να κάνω.";
 }
 
-$("loginForm").onsubmit = async e => {
+$("chatForm").addEventListener("submit", e => {
   e.preventDefault();
-  $("loginError").textContent = "";
-  try{
-    await request("/api/login", {password:$("password").value});
-    $("password").value = "";
-    await check();
-  }catch(err){
-    $("loginError").textContent = err.message;
-  }
-};
-
-$("logout").onclick = async () => {
-  try{
-    await request("/api/logout", {});
-    await check();
-  }catch(e){
-    status(e.message);
-  }
-};
-
-$("chatForm").onsubmit = async e => {
-  e.preventDefault();
-  if(busy) return;
+  if (busy) return;
 
   const text = $("message").value.trim();
-  if(!text) return;
+  if (!text) return;
 
   busy = true;
   $("send").disabled = true;
   $("message").value = "";
   add("user", text);
-  status("Ο JARVIS απαντά…");
+  $("status").textContent = "Ο JARVIS απαντά…";
 
-  try{
-    const reply = localReply(text);
-    add("assistant", reply);
-    status("JARVIS Demo online");
+  try {
+    const answer = reply(text);
+    add("assistant", answer);
+    $("status").textContent = "JARVIS Demo online";
 
-    if(speaking && "speechSynthesis" in window){
-      const u = new SpeechSynthesisUtterance(reply);
-      u.lang = "el-GR";
-      speechSynthesis.speak(u);
+    if (speaking && "speechSynthesis" in window) {
+      const utterance = new SpeechSynthesisUtterance(answer);
+      utterance.lang = "el-GR";
+      speechSynthesis.speak(utterance);
     }
-  }finally{
+  } catch (error) {
+    add("assistant", "Παρουσιάστηκε σφάλμα.");
+  } finally {
     busy = false;
     $("send").disabled = false;
     $("message").focus();
   }
-};
+});
 
-$("clear").onclick = () => {
+$("clear").addEventListener("click", () => {
   $("messages").replaceChildren();
-};
+});
 
-$("speak").onclick = () => {
+$("speak").addEventListener("click", () => {
   speaking = !speaking;
   $("speak").textContent = "🔊 Ομιλία: " + (speaking ? "ON" : "OFF");
-  if(!speaking && "speechSynthesis" in window) speechSynthesis.cancel();
-};
+  if (!speaking && "speechSynthesis" in window) {
+    speechSynthesis.cancel();
+  }
+});
 
-$("voice").onclick = () => {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!SR){
-    status("Η φωνητική εισαγωγή δεν υποστηρίζεται σε αυτόν τον browser.");
+$("voice").addEventListener("click", () => {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) {
+    $("status").textContent = "Η φωνητική εισαγωγή δεν υποστηρίζεται σε αυτόν τον browser.";
     return;
   }
-  const rec = new SR();
-  rec.lang = "el-GR";
-  rec.onresult = e => {
+
+  const recognition = new Recognition();
+  recognition.lang = "el-GR";
+  recognition.onresult = e => {
     $("message").value = e.results[0][0].transcript;
     $("message").focus();
   };
-  rec.onerror = () => status("Δεν έγινε αναγνώριση φωνής.");
-  rec.start();
-  status("Σε ακούω…");
-};
-
-check();
+  recognition.onerror = () => {
+    $("status").textContent = "Δεν έγινε αναγνώριση φωνής.";
+  };
+  recognition.start();
+  $("status").textContent = "Σε ακούω…";
+});
 </script>
 </body>
 </html>
