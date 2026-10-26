@@ -21,8 +21,13 @@ if (process.env.SESSION_SECRET.length < 32) {
 }
 
 if (production) app.set("trust proxy", 1);
+
 app.disable("x-powered-by");
-app.use(helmet());
+
+// Δοκιμαστικά απενεργοποιούμε το CSP,
+// επειδή το index.html χρησιμοποιεί inline JavaScript.
+app.use(helmet({ contentSecurityPolicy: false }));
+
 app.use(express.json({ limit: "20kb" }));
 
 app.use(session({
@@ -38,24 +43,32 @@ app.use(session({
   }
 }));
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
 const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
 app.get("/api/status", (req, res) => {
-  res.json({ authenticated: Boolean(req.session.authenticated) });
+  res.json({
+    authenticated: Boolean(req.session.authenticated)
+  });
 });
 
 app.post("/api/login", rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10
 }), (req, res, next) => {
-  if (typeof req.body?.password !== "string" ||
-      req.body.password !== process.env.APP_PASSWORD) {
+  if (
+    typeof req.body?.password !== "string" ||
+    req.body.password !== process.env.APP_PASSWORD
+  ) {
     return res.status(401).json({ error: "Λάθος κωδικός." });
   }
 
   req.session.regenerate(err => {
     if (err) return next(err);
+
     req.session.authenticated = true;
     res.json({ ok: true });
   });
@@ -68,6 +81,7 @@ app.post("/api/logout", (req, res) => {
       sameSite: "strict",
       secure: production
     });
+
     res.json({ ok: true });
   });
 });
@@ -81,8 +95,15 @@ app.post("/api/chat", rateLimit({
   }
 
   const message = req.body?.message;
-  if (typeof message !== "string" || !message.trim() || message.length > 8000) {
-    return res.status(400).json({ error: "Μήνυμα έως 8.000 χαρακτήρες." });
+
+  if (
+    typeof message !== "string" ||
+    !message.trim() ||
+    message.length > 8000
+  ) {
+    return res.status(400).json({
+      error: "Μήνυμα έως 8.000 χαρακτήρες."
+    });
   }
 
   try {
@@ -92,15 +113,28 @@ app.post("/api/chat", rateLimit({
       input: [
         {
           role: "system",
-          content: "Είσαι ο JARVIS, προσωπικός AI βοηθός. Απάντα στα ελληνικά, με σαφήνεια και ειλικρίνεια. Μην ισχυρίζεσαι ότι ελέγχεις συσκευές ή λογαριασμούς χωρίς σχετικό εργαλείο."
+          content:
+            "Είσαι ο JARVIS, προσωπικός AI βοηθός. " +
+            "Απάντα στα ελληνικά, με σαφήνεια και ειλικρίνεια. " +
+            "Μην ισχυρίζεσαι ότι ελέγχεις συσκευές ή λογαριασμούς " +
+            "χωρίς σχετικό εργαλείο."
         },
-        { role: "user", content: message.trim() }
+        {
+          role: "user",
+          content: message.trim()
+        }
       ]
     });
 
-    res.json({ reply: response.output_text || "Δεν υπήρξε απάντηση." });
+    res.json({
+      reply: response.output_text || "Δεν υπήρξε απάντηση."
+    });
   } catch (error) {
-    console.error("AI request failed:", error?.status || error?.name);
+    console.error(
+      "AI request failed:",
+      error?.status || error?.name
+    );
+
     res.status(502).json({
       error: "Σφάλμα AI. Έλεγξε το API key και τη χρέωση API."
     });
@@ -114,5 +148,7 @@ app.get("/{*path}", (_req, res) => {
 });
 
 const port = Number(process.env.PORT || 3000);
-app.listen(port, () => console.log("JARVIS started on port " + port));
 
+app.listen(port, () => {
+  console.log("JARVIS started on port " + port);
+});
