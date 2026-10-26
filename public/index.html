@@ -1,1 +1,140 @@
 
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#080d18">
+<title>JARVIS AI</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#080d18;color:#edf4ff;font-family:system-ui,sans-serif}
+main{max-width:760px;margin:auto;padding:22px 16px;min-height:100vh;display:flex;flex-direction:column}
+header{text-align:center;padding:24px 0}
+.orb{width:76px;height:76px;border:2px solid #42d9ff;border-radius:50%;margin:auto;display:grid;place-items:center;color:#62e4ff;font-size:30px;box-shadow:0 0 28px #159fc655}
+h1{letter-spacing:5px}
+.panel{background:#111b2b;border:1px solid #24344c;border-radius:16px;padding:16px;margin:10px 0}
+input,textarea,button{font:inherit;border-radius:12px;padding:13px;border:1px solid #334761}
+input,textarea{background:#091321;color:white;width:100%;margin:6px 0}
+button{background:#123b54;color:white;cursor:pointer}
+.primary{background:#087fa4;border:0;width:100%}
+.muted{color:#93a8c4}
+.hidden{display:none!important}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row button{flex:1}
+.msg{padding:12px;border-radius:12px;margin:10px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.user{background:#12354a}.ai{background:#172235}
+#messages{min-height:180px;max-height:45vh;overflow:auto}
+#status{color:#91dff5;font-size:14px}
+</style>
+</head>
+<body>
+<main>
+<header>
+<div class="orb">✦</div>
+<h1>JARVIS</h1>
+<div class="muted">PERSONAL AI ASSISTANT</div>
+<p id="status">Έλεγχος σύνδεσης…</p>
+</header>
+<section id="login" class="panel hidden">
+<h3>Σύνδεση</h3>
+<form id="loginForm">
+<input id="password" type="password" placeholder="Κωδικός πρόσβασης" required>
+<button class="primary">Σύνδεση</button>
+</form>
+<p id="loginError"></p>
+</section>
+<section id="app" class="hidden">
+<div class="row">
+<button id="voice">🎙️ Μίλα</button>
+<button id="speak">🔊 Ομιλία: OFF</button>
+<button id="logout">Αποσύνδεση</button>
+</div>
+<div id="messages" class="panel">
+<div class="msg ai">Γεια σου! Είμαι ο JARVIS. Τι θα ήθελες να κάνουμε;</div>
+</div>
+<form id="chatForm" class="panel">
+<textarea id="message" rows="3" maxlength="8000" placeholder="Γράψε ένα μήνυμα…" required></textarea>
+<div class="row">
+<button class="primary" id="send">Αποστολή ➤</button>
+<button type="button" id="clear">Καθαρισμός</button>
+</div>
+</form>
+</section>
+<footer class="muted">Η χρήση του AI API ενδέχεται να χρεώνεται ξεχωριστά.</footer>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let speaking=false,busy=false;
+function status(t){$("status").textContent=t}
+function show(id,yes){$(id).classList.toggle("hidden",!yes)}
+function add(role,text){
+ const d=document.createElement("div");
+ d.className="msg "+(role==="user"?"user":"ai");
+ d.textContent=text;
+ $("messages").appendChild(d);
+ $("messages").scrollTop=$("messages").scrollHeight;
+}
+async function request(url,data){
+ const r=await fetch(url,{
+  method:data?"POST":"GET",
+  headers:data?{"Content-Type":"application/json"}:{},
+  credentials:"same-origin",
+  body:data?JSON.stringify(data):undefined
+ });
+ const result=await r.json().catch(()=>({}));
+ if(!r.ok)throw Error(result.error||"Σφάλμα σύνδεσης");
+ return result;
+}
+async function check(){
+ try{
+  const r=await request("/api/status");
+  show("login",!r.authenticated);
+  show("app",r.authenticated);
+  status(r.authenticated?"JARVIS online":"Απαιτείται σύνδεση");
+ }catch(e){status("Ο server δεν είναι έτοιμος.")}
+}
+$("loginForm").onsubmit=async e=>{
+ e.preventDefault();$("loginError").textContent="";
+ try{
+  await request("/api/login",{password:$("password").value});
+  $("password").value="";await check();
+ }catch(err){$("loginError").textContent=err.message}
+};
+$("logout").onclick=async()=>{
+ try{await request("/api/logout",{});await check()}
+ catch(e){status(e.message)}
+};
+$("chatForm").onsubmit=async e=>{
+ e.preventDefault();if(busy)return;
+ const text=$("message").value.trim();if(!text)return;
+ busy=true;$("send").disabled=true;$("message").value="";
+ add("user",text);status("Ο JARVIS σκέφτεται…");
+ try{
+  const r=await request("/api/chat",{message:text});
+  add("assistant",r.reply);status("JARVIS online");
+  if(speaking&&"speechSynthesis"in window){
+   const u=new SpeechSynthesisUtterance(r.reply);u.lang="el-GR";speechSynthesis.speak(u);
+  }
+ }catch(err){add("assistant",err.message);status("Σφάλμα")}
+ finally{busy=false;$("send").disabled=false}
+};
+$("clear").onclick=()=>{$("messages").replaceChildren()};
+$("speak").onclick=()=>{
+ speaking=!speaking;
+ $("speak").textContent="🔊 Ομιλία: "+(speaking?"ON":"OFF");
+ if(!speaking&&"speechSynthesis"in window)speechSynthesis.cancel();
+};
+$("voice").onclick=()=>{
+ const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+ if(!SR){status("Η φωνητική εισαγωγή δεν υποστηρίζεται.");return}
+ const rec=new SR();rec.lang="el-GR";
+ rec.onresult=e=>{$("message").value=e.results[0][0].transcript};
+ rec.onerror=()=>status("Δεν έγινε αναγνώριση φωνής.");
+ rec.start();status("Σε ακούω…");
+};
+check();
+</script>
+</body>
+</html>
+
